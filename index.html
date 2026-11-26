@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rabia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
+<style>
+  :root{--cream:#ffe9f1;--ember:#ff8fbf;--rose:#ff5fa2}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(ellipse at 50% 30%,#4d1740 0%,#2a0d27 45%,#150912 85%);
+    color:var(--cream);
+    font-family:"Cormorant Garamond",Georgia,"Times New Roman",serif;
+    overflow:hidden;
+    -webkit-tap-highlight-color:transparent;
+  }
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+
+  /* dokun */
+  #intro{
+    position:fixed;inset:0;z-index:5;
+    display:flex;align-items:center;justify-content:center;
+    background:#150912;cursor:pointer;
+    transition:opacity 1.2s ease;
+  }
+  #intro.gone{opacity:0;pointer-events:none}
+  #intro span{
+    font-size:clamp(2rem,8vw,3.2rem);font-style:italic;
+    animation:breathe 2.4s ease-in-out infinite;
+    text-shadow:0 0 28px rgba(255,110,170,.6);
+  }
+  @keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
+
+  /* yazı + mektup */
+  #ui{
+    position:fixed;left:0;right:0;bottom:0;
+    padding:0 24px max(34px,env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;align-items:center;gap:22px;
+    text-align:center;z-index:2;
+  }
+  #msg{
+    max-width:24ch;
+    font-size:clamp(1.55rem,5.6vw,2.5rem);
+    font-style:italic;font-weight:600;line-height:1.3;
+    text-shadow:0 0 26px rgba(255,110,170,.55);
+  }
+  #msg .w{opacity:0;transition:opacity 1s ease}
+  #msg .w.on{opacity:1}
+  #msg .name{font-size:1.2em;color:#ffb8d5}
+
+  #row{
+    display:flex;align-items:center;justify-content:center;gap:12px;
+    opacity:0;pointer-events:none;transition:opacity 1.2s ease;
+  }
+  #row.on{opacity:1;pointer-events:auto}
+  #letter{
+    display:inline-flex;align-items:center;gap:.5em;
+    font:inherit;font-size:1.3rem;color:var(--cream);
+    background:rgba(255,143,191,.14);
+    border:1px solid rgba(255,233,241,.55);
+    border-radius:50%;width:3.3rem;height:3.3rem;justify-content:center;padding:0;cursor:pointer;
+    transition:background .3s,border-color .3s;
+  }
+  #letter:hover,#letter:focus-visible{background:rgba(255,143,191,.32);border-color:var(--ember);outline:none}
+  #letter svg{width:1.6rem;height:1.6rem;stroke:currentColor;fill:none;stroke-width:1.6}
+
+  #bubble{
+    position:relative;
+    background:#ffe3ee;color:#8a1f55;
+    font-size:1.3rem;font-style:italic;font-weight:600;white-space:nowrap;
+    padding:.55em 1.1em;border-radius:999px;
+    transform-origin:left center;
+    transform:scale(0);opacity:0;
+    transition:transform .55s cubic-bezier(.2,1.4,.4,1),opacity .3s;
+  }
+  #bubble::before{
+    content:"";position:absolute;left:-7px;top:50%;
+    width:14px;height:14px;background:#ffe3ee;
+    transform:translateY(-50%) rotate(45deg);border-radius:2px;
+  }
+  #bubble.open{transform:scale(1);opacity:1}
+
+  @media (max-width:420px){
+    #letter,#bubble{font-size:1.1rem}
+    #row{gap:10px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    #intro span{animation:none;opacity:1}
+    #bubble{transition:opacity .3s}
+  }
+</style>
+</head>
+<body>
+<canvas id="c" aria-hidden="true"></canvas>
+
+<div id="intro" role="button" tabindex="0" aria-label="Başlamak için dokun"><span>dokun</span></div>
+
+<div id="ui">
+  <p id="msg" aria-live="polite"></p>
+  <div id="row">
+    <button id="letter" type="button" aria-expanded="false" aria-controls="bubble" aria-label="Mektup">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></svg>
+    </button>
+    <div id="bubble" role="status">seni seviyorum..</div>
+  </div>
+</div>
+
+<audio id="song" loop preload="auto"></audio>
+
+<script>
+(() => {
+  // Şarkı dosyasının adı: index.html ile aynı klasöre koy.
+  const SONG = "sarki.mp3";
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  let w, h, dpr, cx, cy, size;
+
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    w = innerWidth; h = innerHeight;
+    cv.width = w * dpr; cv.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = w / 2;
+    cy = h * 0.34;
+    size = Math.min(w * 0.78, h * 0.42);
+    assign();
+  }
+
+  // Kalp: parametrik eğri, bir kısmı çizgi, bir kısmı dolgu
+  const COUNT = innerWidth < 600 ? 800 : 1300;
+  const P = [];
+  const seeds = [];
+  for (let i = 0; i < COUNT; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const edge = Math.random() < 0.38;
+    const s = edge ? 1 : Math.sqrt(Math.random()) * 0.96;
+    seeds.push({ a, s });
+    P.push({
+      x: Math.random() * innerWidth,
+      y: Math.random() < .5 ? -20 : innerHeight + 20,
+      vx: 0, vy: 0, tx: 0, ty: 0,
+      r: .7 + Math.random() * 1.6,
+      hue: 322 + Math.random() * 34,
+      lum: 62 + Math.random() * 20,
+      ph: Math.random() * 6.28,
+      delay: Math.random() * 260
+    });
+  }
+  function assign() {
+    const k = size / 34;
+    for (let i = 0; i < COUNT; i++) {
+      const { a, s } = seeds[i];
+      const hx = 16 * Math.pow(Math.sin(a), 3);
+      const hy = 13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a);
+      P[i].bx = cx + hx * s * k;
+      P[i].by = cy - hy * s * k;
+    }
+  }
+  resize();
+  addEventListener('resize', resize);
+
+  let started = false, frameN = 0, formed = 0;
+  function frame() {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(0, 0, w, h);
+    ctx.globalCompositeOperation = 'lighter';
+
+    if (started) frameN++;
+    const beat = 1 + 0.045 * Math.max(0, Math.sin(frameN * 0.075)) ** 3 * (formed ? 1 : 0)
+                   + 0.02 * Math.sin(frameN * 0.03) * formed;
+
+    for (const p of P) {
+      const tx = cx + (p.bx - cx) * beat;
+      const ty = cy + (p.by - cy) * beat;
+      if (started && frameN > p.delay) {
+        p.vx += (tx - p.x) * 0.0045;
+        p.vy += (ty - p.y) * 0.0045;
+        p.vx *= 0.93; p.vy *= 0.93;
+        p.x += p.vx; p.y += p.vy;
+        if (formed) {
+          p.x += Math.sin(frameN * 0.04 + p.ph) * 0.12;
+          p.y += Math.cos(frameN * 0.035 + p.ph) * 0.12;
+        }
+      } else if (!started) {
+        p.x += Math.sin(performance.now() / 2000 + p.ph) * 0.15;
+        p.y += Math.cos(performance.now() / 2300 + p.ph) * 0.15;
+      }
+      const tw = 0.55 + 0.45 * Math.sin(frameN * 0.06 + p.ph);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, 6.283);
+      ctx.fillStyle = `hsla(${p.hue},92%,${p.lum}%,${0.35 + tw * 0.55})`;
+      ctx.fill();
+    }
+
+    // kalbin etrafındaki yumuşak ışık
+    if (formed) {
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.8);
+      g.addColorStop(0, 'rgba(255,100,170,.18)');
+      g.addColorStop(1, 'rgba(255,100,170,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+
+  // Metin: tek cümle, kelime kelime belirir
+  const msgEl = document.getElementById('msg');
+  const full = 'kızıl saçlı kız; gülüşün etrafa mutluluk saçar güzeliğin ışık gibidir Rabia..';
+  full.split(' ').forEach((word, i, arr) => {
+    const s = document.createElement('span');
+    s.className = 'w' + (word.startsWith('Rabia') ? ' name' : '');
+    s.textContent = word;
+    msgEl.appendChild(s);
+    if (i < arr.length - 1) msgEl.appendChild(document.createTextNode(' '));
+  });
+
+  // Dokun -> şarkı + kalp
+  const intro = document.getElementById('intro');
+  const song = document.getElementById('song');
+  const row = document.getElementById('row');
+
+  function start() {
+    if (started) return;
+    started = true;
+    intro.classList.add('gone');
+
+    song.src = SONG;
+    song.volume = 0;
+    song.play().then(() => {
+      let v = 0;
+      const f = setInterval(() => {
+        v = Math.min(1, v + 0.05);
+        song.volume = v;
+        if (v >= 1) clearInterval(f);
+      }, 150);
+    }).catch(() => {});
+
+    setTimeout(() => { formed = 1; }, 8000);
+    const words = msgEl.querySelectorAll('.w');
+    words.forEach((el, i) => setTimeout(() => el.classList.add('on'), 8600 + i * 420));
+    setTimeout(() => row.classList.add('on'), 8600 + words.length * 420 + 800);
+  }
+  intro.addEventListener('click', start);
+  intro.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') start(); });
+
+  // Mektup -> yana doğru baloncuk
+  const letter = document.getElementById('letter');
+  const bubble = document.getElementById('bubble');
+  letter.addEventListener('click', () => {
+    const open = bubble.classList.toggle('open');
+    letter.setAttribute('aria-expanded', open);
+  });
+})();
+</script>
+</body>
+</html>
